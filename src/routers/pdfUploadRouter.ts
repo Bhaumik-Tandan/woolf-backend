@@ -1,8 +1,7 @@
+// src/routers/pdfUploadRouter.ts
 import { publicProcedure } from '../trpc';
 import { z } from 'zod';
-import { readFileSync } from 'fs';
-import { extractTextFromPdf } from '../utils/pdfUtils';
-import fetch from 'node-fetch';
+import { extractTextFromPdf, safeUnlink } from '../utils/pdfUtils';
 import { GenerateContentRequest } from '../types/pdfUpload';
 
 export const pdfUploadRouter = {
@@ -15,10 +14,8 @@ export const pdfUploadRouter = {
     )
     .mutation(async ({ input }) => {
       // 1) Extract text
-      const raw1 = readFileSync(input.pdf1Path);
-      const raw2 = readFileSync(input.pdf2Path);
-      const text1 = await extractTextFromPdf(raw1);
-      const text2 = await extractTextFromPdf(raw2);
+      const text1 = await extractTextFromPdf(input.pdf1Path);
+      const text2 = await extractTextFromPdf(input.pdf2Path);
 
       // 2) Build LLM payload
       const payload: GenerateContentRequest = {
@@ -32,10 +29,11 @@ ${text2}
 
 1) Summarize strengths/weaknesses.
 2) Rate alignment to the job.`,
-        // add other fields (temperature, maxOutputTokens…) if you like
       };
 
-      // 3) Call Gemini endpoint
+      // 3) Dynamically import node-fetch so you don't `require()` an ESM-only package
+      const { default: fetch } = await import('node-fetch');
+
       const resp = await fetch('https://intertest.woolf.engineering/invoke', {
         method: 'POST',
         headers: {
@@ -44,8 +42,12 @@ ${text2}
         },
         body: JSON.stringify(payload),
       });
-
       const json = await resp.json();
+
+      // 4) Clean up temp files
+      safeUnlink(input.pdf1Path);
+      safeUnlink(input.pdf2Path);
+
       return json;
     }),
 };

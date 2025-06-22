@@ -1,47 +1,45 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './routers';
-import { createContext } from './trpc';
+import { createContext, type Context } from './trpc';
 import { storage } from './config/multerStorage';
 
-const upload = multer({ storage });
 const app = express();
-const port = process.env.PORT ? +process.env.PORT : 3000;
+const upload = multer({ storage });
 
-// tRPC JSON-RPC endpoint (optional additional RPCs)
+// mount tRPC for any other RPCs
 app.use(
   '/trpc',
   createExpressMiddleware({
     router: appRouter,
     createContext,
-  })
+  }),
 );
 
-// Upload endpoint – accepts pdf1 & pdf2
 app.post(
   '/upload',
   upload.fields([
     { name: 'pdf1', maxCount: 1 },
     { name: 'pdf2', maxCount: 1 },
   ]),
-  async (req, res, next) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
       const files = req.files as Record<'pdf1' | 'pdf2', Express.Multer.File[]>;
       const pdf1Path = files.pdf1[0].path;
       const pdf2Path = files.pdf2[0].path;
 
-      // call tRPC procedure
-      const caller = appRouter.createCaller(await createContext({ req, res }));
-      const analysis = await caller.analyze({ pdf1Path, pdf2Path });
+      // Instead of createContext, give createCaller the minimal Context:
+      const caller = appRouter.createCaller({} as Context);
 
+      const analysis = await caller.analyze({ pdf1Path, pdf2Path });
       res.json(analysis);
     } catch (err) {
       next(err);
     }
-  }
+  },
 );
 
-app.listen(port, () => {
-  console.log(`🚀 Server running on http://localhost:${port}`);
+app.listen(3000, () => {
+  console.log('🚀 Server listening on http://localhost:3000');
 });
