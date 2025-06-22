@@ -1,8 +1,10 @@
 import express from 'express';
+import dotenv from 'dotenv';
 import { createExpressMiddleware } from '@trpc/server/adapters/express';
 import { appRouter } from './routers';
 import { createContext } from './trpc';
 import pdfUploadRouter from './expressRouters/pdfUpload';
+dotenv.config();
 
 const app = express();
 
