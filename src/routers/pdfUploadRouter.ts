@@ -1,84 +1,51 @@
-\import express from 'express';
-import multer from 'multer';
-import path from 'path';
-import fs from 'fs';
-import pdf from 'pdf-parse';
+import { publicProcedure } from '../trpc';
+import { z } from 'zod';
+import { readFileSync } from 'fs';
+import { extractTextFromPdf } from '../utils/pdfUtils';
+import fetch from 'node-fetch';
+import { GenerateContentRequest } from '../types/pdfUpload';
 
-const pdfUploadRouter = express.Router();
+export const pdfUploadRouter = {
+  analyze: publicProcedure
+    .input(
+      z.object({
+        pdf1Path: z.string(),
+        pdf2Path: z.string(),
+      })
+    )
+    .mutation(async ({ input }) => {
+      // 1) Extract text
+      const raw1 = readFileSync(input.pdf1Path);
+      const raw2 = readFileSync(input.pdf2Path);
+      const text1 = await extractTextFromPdf(raw1);
+      const text2 = await extractTextFromPdf(raw2);
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadsDir = './uploads';
-    if (!fs.existsSync(uploadsDir)) {
-      fs.mkdirSync(uploadsDir);
-    }
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
-  }
-});
+      // 2) Build LLM payload
+      const payload: GenerateContentRequest = {
+        model: 'gemini-1.5-flash',
+        prompt: `
+Here’s the job description:
+${text1}
 
-const upload = multer({ storage: storage }).fields([
-  { name: 'jobDescription', maxCount: 1 },
-  { name: 'cv', maxCount: 1 }
-]);
+Here’s the candidate CV:
+${text2}
 
-// Helper function to extract text from PDF
-const extractTextFromPdf = async (filePath: string): Promise<string> => {
-  const dataBuffer = fs.readFileSync(filePath);
-  const data = await pdf(dataBuffer);
-  return data.text;
-};
+1) Summarize strengths/weaknesses.
+2) Rate alignment to the job.`,
+        // add other fields (temperature, maxOutputTokens…) if you like
+      };
 
-pdfUploadRouter.post('/upload-pdfs', (req, res) => {
-  upload(req, res, async (err) => {
-    if (err instanceof multer.MulterError) {
-      return res.status(500).json({ error: err.message });
-    } else if (err) {
-      return res.status(500).json({ error: 'An unknown error occurred during upload.' });
-    }
-
-    if (!req.files || Object.keys(req.files).length < 2) {
-      return res.status(400).json({ error: 'Please upload both a job description and a CV.' });
-    }
-
-    const uploadedFiles = req.files as { [fieldname: string]: Express.Multer.File[] };
-    const jobDescriptionFile = uploadedFiles['jobDescription'] ? uploadedFiles['jobDescription'][0] : null;
-    const cvFile = uploadedFiles['cv'] ? uploadedFiles['cv'][0] : null;
-
-    if (!jobDescriptionFile || !cvFile || jobDescriptionFile.mimetype !== 'application/pdf' || cvFile.mimetype !== 'application/pdf') {
-        jobDescriptionFile && fs.unlinkSync(jobDescriptionFile.path);
-        cvFile && fs.unlinkSync(cvFile.path);
-        return res.status(400).json({ error: 'Both uploaded files must be PDFs.' });
-    }
-
-    try {
-      const jobDescriptionText = await extractTextFromPdf(jobDescriptionFile.path);
-      const cvText = await extractTextFromPdf(cvFile.path);
-
-      // Clean up uploaded files after processing
-      fs.unlinkSync(jobDescriptionFile.path);
-      fs.unlinkSync(cvFile.path);
-
-      // Now, pass the extracted text to the AI analysis tRPC procedure
-      // This is conceptual, as direct tRPC calls from Express are not typical.
-      // Instead, we'll expose a tRPC procedure that the frontend calls *after* getting text.
-      // For now, we'll just return the texts.
-      res.status(200).json({
-        message: 'PDFs processed successfully, ready for AI analysis.',
-        jobDescriptionText: jobDescriptionText,
-        cvText: cvText
+      // 3) Call Gemini endpoint
+      const resp = await fetch('https://intertest.woolf.engineering/invoke', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${process.env.GEMINI_TOKEN}`,
+        },
+        body: JSON.stringify(payload),
       });
 
-    } catch (pdfError) {
-      console.error('Error processing PDFs:', pdfError);
-      // Ensure files are deleted even if PDF parsing fails
-      jobDescriptionFile && fs.unlinkSync(jobDescriptionFile.path);
-      cvFile && fs.unlinkSync(cvFile.path);
-      return res.status(500).json({ error: 'Failed to process PDF files.' });
-    }
-  });
-});
-
-export default pdfUploadRouter;
+      const json = await resp.json();
+      return json;
+    }),
+};
