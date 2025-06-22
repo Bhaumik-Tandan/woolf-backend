@@ -17,6 +17,7 @@ export const pdfUploadRouter = {
       const text1 = await extractTextFromPdf(input.pdf1Path);
       const text2 = await extractTextFromPdf(input.pdf2Path);
 
+
       // 2) Build LLM payload
       const payload: GenerateContentRequest = {
         model: 'gemini-1.5-flash',
