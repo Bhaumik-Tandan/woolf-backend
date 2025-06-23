@@ -51,7 +51,7 @@ npm run dev
 ### Production
 ```
 yarn build
-node dist/index.js
+node dist/src/index.js
 ```
 
 ## API Endpoints
