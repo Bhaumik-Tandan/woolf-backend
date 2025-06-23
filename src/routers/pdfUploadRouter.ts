@@ -42,7 +42,6 @@ Use exactly this schema:
 `.trim(),
       };
 
-      console.log('Payload to Gemini:', JSON.stringify(payload, null, 2));
 
       // 3️⃣ Send to Gemini
       const response = await axios.post(
@@ -80,6 +79,7 @@ Use exactly this schema:
           `Failed to parse JSON from Gemini: ${err.message}\n\nCleaned body:\n${raw}`
         );
       }
+
 
       // 7️⃣ Return the structured data
       return result as {
